@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+  --primary: #8B5CF6;
+  --primary-dark: #7C3AED;
+  --glass-bg: rgba(139, 92, 246, 0.1);
+  --glass-border: rgba(139, 92, 246, 0.2);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-noto-sans-kr);
+}
+
+body {
+  background: linear-gradient(135deg, #000000 0%, #1a1a2e 100%);
+  color: var(--foreground);
+  font-family: var(--font-noto-sans-kr), sans-serif;
+  overflow-x: hidden;
+}
+
+.glass {
+  background: rgba(139, 92, 246, 0.1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.mood-card {
+  @apply rounded-2xl p-4 transition-all duration-300 hover:scale-105 hover:shadow-lg cursor-pointer;
+  background: rgba(139, 92, 246, 0.1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  box-shadow: 0 8px 32px rgba(139, 92, 246, 0.1);
+}
+
+.mood-card:hover {
+  background: rgba(139, 92, 246, 0.2);
+  box-shadow: 0 12px 48px rgba(139, 92, 246, 0.2);
+}
+
+.gradient-button {
+  background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+  @apply transition-all duration-300 hover:shadow-lg hover:scale-105;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #8B5CF6 0%, #A855F7 50%, #C084FC 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
