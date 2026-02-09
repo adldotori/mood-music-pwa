@@ -14,13 +14,6 @@ interface QueueItem extends Song {
   id: string;
 }
 
-declare global {
-  interface Window {
-    YT: typeof YT;
-    onYouTubeIframeAPIReady: () => void;
-  }
-}
-
 function PlayPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -31,138 +24,8 @@ function PlayPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playerReady, setPlayerReady] = useState(false);
-  const [needsUserTap, setNeedsUserTap] = useState(false);
-  
-  const playerInstanceRef = useRef<YT.Player | null>(null);
-  const queueRef = useRef<QueueItem[]>([]);
-  const currentIndexRef = useRef(0);
-  const ytReadyRef = useRef(false);
   const initDoneRef = useRef(false);
-
-  // Keep refs in sync with state
-  useEffect(() => { queueRef.current = queue; }, [queue]);
-  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
-
-  // Load YouTube IFrame API
-  useEffect(() => {
-    if (window.YT && window.YT.Player) {
-      ytReadyRef.current = true;
-      return;
-    }
-
-    const existingScript = document.querySelector('script[src="https://www.youtube.com/iframe_api"]');
-    if (existingScript) return;
-
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    document.head.appendChild(tag);
-
-    window.onYouTubeIframeAPIReady = () => {
-      ytReadyRef.current = true;
-    };
-  }, []);
-
-  const playNext = useCallback(() => {
-    const q = queueRef.current;
-    const idx = currentIndexRef.current;
-    if (q.length === 0) return;
-    
-    const nextIdx = (idx + 1) % q.length;
-    setCurrentIndex(nextIdx);
-    currentIndexRef.current = nextIdx;
-    
-    if (playerInstanceRef.current && q[nextIdx]?.videoId) {
-      playerInstanceRef.current.loadVideoById(q[nextIdx].videoId!);
-    }
-  }, []);
-
-  const playPrevious = useCallback(() => {
-    const q = queueRef.current;
-    const idx = currentIndexRef.current;
-    if (q.length === 0) return;
-    
-    const prevIdx = idx > 0 ? idx - 1 : q.length - 1;
-    setCurrentIndex(prevIdx);
-    currentIndexRef.current = prevIdx;
-    
-    if (playerInstanceRef.current && q[prevIdx]?.videoId) {
-      playerInstanceRef.current.loadVideoById(q[prevIdx].videoId!);
-    }
-  }, []);
-
-  const playNextRef = useRef(playNext);
-  playNextRef.current = playNext;
-
-  // Create YouTube player on a specific video
-  const createPlayer = useCallback((videoId: string) => {
-    // Destroy existing player
-    if (playerInstanceRef.current) {
-      try { playerInstanceRef.current.destroy(); } catch {}
-      playerInstanceRef.current = null;
-    }
-
-    const waitForYT = () => {
-      if (window.YT && window.YT.Player) {
-        const container = document.getElementById('yt-player-container');
-        if (!container) return;
-        
-        // Create a fresh div for the player
-        container.innerHTML = '<div id="yt-player"></div>';
-        
-        playerInstanceRef.current = new window.YT.Player('yt-player', {
-          height: '220',
-          width: '100%',
-          videoId: videoId,
-          playerVars: {
-            autoplay: 1,
-            controls: 1,
-            modestbranding: 1,
-            rel: 0,
-            playsinline: 1,  // Critical for iOS
-          },
-          events: {
-            onReady: (event: YT.PlayerEvent) => {
-              setPlayerReady(true);
-              // Try to play - might be blocked on mobile
-              try {
-                event.target.playVideo();
-                setIsPlaying(true);
-                setNeedsUserTap(false);
-              } catch {
-                setNeedsUserTap(true);
-              }
-            },
-            onStateChange: (event: YT.OnStateChangeEvent) => {
-              if (event.data === YT.PlayerState.ENDED) {
-                playNextRef.current();
-              }
-              if (event.data === YT.PlayerState.PLAYING) {
-                setIsPlaying(true);
-                setNeedsUserTap(false);
-              }
-              if (event.data === YT.PlayerState.PAUSED) {
-                setIsPlaying(false);
-              }
-              // Detect if autoplay was blocked (unstarted state)
-              if (event.data === YT.PlayerState.CUED || event.data === -1) {
-                setNeedsUserTap(true);
-              }
-            },
-            onError: () => {
-              // Skip to next song on error
-              playNextRef.current();
-            },
-          },
-        });
-      } else {
-        setTimeout(waitForYT, 200);
-      }
-    };
-    
-    waitForYT();
-  }, []);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Get recommendations and search YouTube
   useEffect(() => {
@@ -201,7 +64,7 @@ function PlayPageContent() {
                 const res = await fetch('/api/search', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ query: `${song.artist} ${song.title} official` }),
+                  body: JSON.stringify({ query: `${song.artist} ${song.title}` }),
                 });
                 if (!res.ok) return null;
                 const data = await res.json();
@@ -227,12 +90,7 @@ function PlayPageContent() {
         }
 
         setQueue(queueItems);
-        queueRef.current = queueItems;
         setIsLoading(false);
-        setLoadingStatus('');
-
-        // Start playing the first song
-        createPlayer(queueItems[0].videoId!);
 
       } catch (err) {
         console.error('Init error:', err);
@@ -242,36 +100,19 @@ function PlayPageContent() {
     };
 
     init();
-  }, [mood, createPlayer]);
-
-  const togglePlayPause = useCallback(() => {
-    const p = playerInstanceRef.current;
-    if (!p) return;
-    try {
-      if (isPlaying) {
-        p.pauseVideo();
-      } else {
-        p.playVideo();
-      }
-    } catch {}
-  }, [isPlaying]);
-
-  const handleUserTap = useCallback(() => {
-    const p = playerInstanceRef.current;
-    if (p) {
-      try { p.playVideo(); } catch {}
-    }
-    setNeedsUserTap(false);
-  }, []);
+  }, [mood]);
 
   const playSongAtIndex = useCallback((index: number) => {
     setCurrentIndex(index);
-    currentIndexRef.current = index;
-    const song = queueRef.current[index];
-    if (song?.videoId && playerInstanceRef.current) {
-      playerInstanceRef.current.loadVideoById(song.videoId);
-    }
   }, []);
+
+  const playNext = useCallback(() => {
+    setCurrentIndex(prev => (prev + 1) % queue.length);
+  }, [queue.length]);
+
+  const playPrevious = useCallback(() => {
+    setCurrentIndex(prev => prev > 0 ? prev - 1 : queue.length - 1);
+  }, [queue.length]);
 
   const getMoreSongs = async () => {
     const existingSongs = queue.map(item => `${item.artist} ${item.title}`);
@@ -294,7 +135,7 @@ function PlayPageContent() {
           const res = await fetch('/api/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: `${song.artist} ${song.title} official` }),
+            body: JSON.stringify({ query: `${song.artist} ${song.title}` }),
           });
           if (!res.ok) continue;
           const data = await res.json();
@@ -305,15 +146,13 @@ function PlayPageContent() {
             videoId: data.videoId,
             thumbnail: data.thumbnail,
           });
-        } catch {}
+        } catch { /* skip */ }
       }
 
       setQueue(prev => [...prev, ...newItems]);
-    } catch {}
+    } catch { /* ignore */ }
     setLoadingStatus('');
   };
-
-  const currentSong = queue[currentIndex];
 
   // Save mood to recent history
   useEffect(() => {
@@ -322,8 +161,30 @@ function PlayPageContent() {
       const recent: string[] = stored ? JSON.parse(stored) : [];
       const updated = [mood, ...recent.filter(m => m !== mood)].slice(0, 10);
       localStorage.setItem('recentMoods', JSON.stringify(updated));
-    } catch {}
+    } catch { /* ignore */ }
   }, [mood]);
+
+  // Listen for iframe messages to detect video end (for auto-advance)
+  useEffect(() => {
+    // YouTube iframe with enablejsapi sends postMessage events
+    const handleMessage = (event: MessageEvent) => {
+      try {
+        if (typeof event.data === 'string') {
+          const data = JSON.parse(event.data);
+          // YouTube sends playerState changes via postMessage
+          if (data.event === 'onStateChange' && data.info === 0) {
+            // State 0 = ended
+            playNext();
+          }
+        }
+      } catch { /* not a YouTube message */ }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [playNext]);
+
+  const currentSong = queue[currentIndex];
 
   if (error) {
     return (
@@ -372,22 +233,21 @@ function PlayPageContent() {
         {/* Player Area */}
         {!isLoading && currentSong && (
           <>
-            {/* YouTube Player */}
-            <div className="rounded-2xl overflow-hidden mb-4 bg-black">
-              <div id="yt-player-container">
-                <div id="yt-player"></div>
-              </div>
+            {/* YouTube Player - Simple iframe embed */}
+            <div className="rounded-2xl overflow-hidden mb-4 bg-black aspect-video">
+              <iframe
+                ref={iframeRef}
+                key={currentSong.videoId}
+                width="100%"
+                height="100%"
+                src={`https://www.youtube.com/embed/${currentSong.videoId}?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`}
+                title={currentSong.title}
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                style={{ border: 'none' }}
+              />
             </div>
-
-            {/* Tap to Play overlay for mobile */}
-            {needsUserTap && (
-              <button
-                onClick={handleUserTap}
-                className="w-full bg-gradient-to-r from-purple-600 to-violet-600 py-4 rounded-xl text-lg font-bold mb-4 animate-pulse"
-              >
-                ▶️ 탭하여 재생
-              </button>
-            )}
 
             {/* Current Song Info */}
             <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-5 mb-4">
@@ -399,19 +259,13 @@ function PlayPageContent() {
             <div className="flex items-center justify-center gap-6 mb-6">
               <button
                 onClick={playPrevious}
-                className="bg-white/5 border border-white/10 rounded-full w-14 h-14 flex items-center justify-center text-2xl hover:bg-white/10 transition-colors"
+                className="bg-white/5 border border-white/10 rounded-full w-14 h-14 flex items-center justify-center text-2xl hover:bg-white/10 transition-colors active:scale-95"
               >
                 ⏮
               </button>
               <button
-                onClick={togglePlayPause}
-                className="bg-gradient-to-r from-purple-600 to-violet-600 rounded-full w-16 h-16 flex items-center justify-center text-3xl shadow-lg shadow-purple-500/30"
-              >
-                {isPlaying ? '⏸' : '▶️'}
-              </button>
-              <button
                 onClick={playNext}
-                className="bg-white/5 border border-white/10 rounded-full w-14 h-14 flex items-center justify-center text-2xl hover:bg-white/10 transition-colors"
+                className="bg-gradient-to-r from-purple-600 to-violet-600 rounded-full w-16 h-16 flex items-center justify-center text-3xl shadow-lg shadow-purple-500/30 active:scale-95"
               >
                 ⏭
               </button>
@@ -444,7 +298,7 @@ function PlayPageContent() {
                   >
                     <div className="flex items-center gap-3">
                       <span className="text-gray-500 text-sm w-6 text-center">
-                        {index === currentIndex ? (isPlaying ? '🔊' : '⏸') : index + 1}
+                        {index === currentIndex ? '🔊' : index + 1}
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-sm truncate">{song.title}</div>
